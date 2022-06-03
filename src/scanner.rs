@@ -1,158 +1,167 @@
-use crate::token::{Token, TokenType};
+use crate::token::Token;
+use crate::token::TokenType;
 
 struct Scanner {
-    source: Vec<char>,
+    code: Vec<char>,
     tokens: Vec<Token>,
-    start: usize,
     current: usize,
+    current_char: char,
     line: usize,
 }
 
 impl Scanner {
-    fn new() -> Scanner {
+    fn new(program: &str) -> Scanner {
         Scanner {
-            source: Vec::new(),
+            code: program.chars().collect::<Vec<char>>(),
             tokens: Vec::new(),
-            start: 0,
             current: 0,
-            line: 0,
+            current_char: '\0',
+            line: 1,
         }
-    }
-
-    fn is_at_end(&self) -> bool {
-        self.current >= self.source.len()
-    }
-
-    fn advance(&mut self) -> char {
-        self.current = self.current + 1;
-        self.source[self.current]
-    }
-
-    fn add_token(&mut self, token_type: TokenType) {
-        self.tokens.push(Token::new(token_type, self.line));
-    }
-
-    fn add_token_string(&mut self, string: String) {
-        self.tokens.push(Token::newString(string, self.line));
-    }
-
-    fn add_token_number(&mut self, number: f64) {
-        self.tokens.push(Token::newNumber(number, self.line));
     }
 
     fn peek(&self) -> char {
-        if self.is_at_end() {
+        if self.current >= self.code.len() {
             '\0'
         } else {
-            self.source[self.current]
+            self.code[self.current]
         }
     }
 
-    fn peekIs(&self, expected: char) -> bool {
-        if self.is_at_end() {
-            false
-        } else {
-            self.source[self.current] == expected
+    fn next(&mut self) -> char {
+        let nc = self.peek();
+        self.current += 1;
+        self.current_char = nc;
+        nc
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.peek() == '\0'
+    }
+
+    fn add_token(&mut self, token_type: TokenType, lexeme: String) {
+        self.tokens.push(Token::new(token_type, lexeme, self.line));
+    }
+
+    fn scan(&mut self) -> Vec<Token> {
+        while !self.is_at_end() {
+            self.scan_token();
         }
+        self.tokens.clone()
     }
 
-    fn scan_string(&mut self) -> String {
-        self.scan_generic(TokenType::String)
+    fn scan_token(&mut self) {
+        let c = self.next().to_string();
+        match c.as_str() {
+            "\n" => self.line = self.line + 1,
+            c if c.trim().is_empty() => (),
+            "(" => self.add_token(TokenType::LeftParen, c),
+            ")" => self.add_token(TokenType::RightParen, c),
+            "{" => self.add_token(TokenType::LeftBrace, c),
+            "}" => self.add_token(TokenType::RightBrace, c),
+            "," => self.add_token(TokenType::Comma, c),
+            "." => self.add_token(TokenType::Dot, c),
+            "-" => self.add_token(TokenType::Minus, c),
+            "+" => self.add_token(TokenType::Plus, c),
+            ";" => self.add_token(TokenType::Semicolon, c),
+            "*" => self.add_token(TokenType::Star, c),
+            "!" => {
+                if self.peek() == '=' {
+                    self.next();
+                    self.add_token(TokenType::BangEquals, "!=".to_string());
+                } else {
+                    self.add_token(TokenType::Bang, c);
+                }
+            }
+            "=" => {
+                if self.peek() == '=' {
+                    self.next();
+                    self.add_token(TokenType::EqualsEquals, "==".to_string());
+                } else {
+                    self.add_token(TokenType::Equals, c);
+                }
+            }
+            "<" => {
+                if self.peek() == '=' {
+                    self.next();
+                    self.add_token(TokenType::LessEqual, "<=".to_string());
+                } else {
+                    self.add_token(TokenType::Less, c);
+                }
+            }
+            ">" => {
+                if self.peek() == '=' {
+                    self.next();
+                    self.add_token(TokenType::GreaterEqual, ">=".to_string());
+                } else {
+                    self.add_token(TokenType::Greater, c);
+                }
+            }
+            "/" => {
+                if self.peek() == '/' {
+                    // Comment until the end of the line
+                    while self.peek() != '\n' && !self.is_at_end() {
+                        self.next();
+                    }
+                } else {
+                    self.add_token(TokenType::Slash, c);
+                }
+            }
+            "\"" => self.scan_string(),
+            c if is_alphabetic(c) => self.scan_identifier(),
+            c if is_numeric(c) => self.scan_number(),
+            _ => panic!("unrecognized char: '{}' at line {}", c, self.line),
+        };
     }
 
-    fn scan_identifier(&mut self) -> String {
-        self.scan_generic(TokenType::Identifier)
+    fn scan_string(&mut self) {
+        let st = self.scan_generic(TokenType::String);
+        self.tokens.push(Token::new_string(st, self.line));
     }
 
-    fn scan_number(&mut self) -> f64 {
+    fn scan_identifier(&mut self) {
+        let id = self.scan_generic(TokenType::Identifier);
+        self.tokens.push(Token::new_identifier(id, self.line));
+    }
+
+    fn scan_number(&mut self) {
         let lit = self.scan_generic(TokenType::Number);
-        lit.parse::<f64>().unwrap()
+        self.tokens
+            .push(Token::new_number(lit.parse::<f64>().unwrap(), self.line));
     }
 
     fn scan_generic(&mut self, ttype: TokenType) -> String {
         let mut literal = String::from("");
-        if ttype != TokenType::String { // We avoid 1st character if string since it's "
-            literal.push(self.source[self.current]);
+        if ttype != TokenType::String {
+            // We avoid 1st character if string since it's "
+            literal.push(self.current_char);
         }
 
         while self.current <= self.code.len() {
             let c = self.peek();
             if !c.is_ascii_alphanumeric() && !(ttype == TokenType::String && c.is_whitespace()) {
                 if c == '"' && ttype == TokenType::String {
-                    self.advance();
+                    self.next();
                 }
                 break;
             }
             literal.push(c);
-            self.advance();
+            self.next();
         }
 
         literal
     }
+}
 
-    fn scan_token(&mut self) {
-        let c = self.advance();
-        match c.as_str() {
-            '\n' => self.line = self.line + 1,
-            c if c.trim().is_empty() => (),
-            "(" => self.add_token(TokenType::LeftParen),
-            ")" => self.add_token(TokenType::RightParen),
-            "{" => self.add_token(TokenType::LeftBrace),
-            "}" => self.add_token(TokenType::RightBrace),
-            "," => self.add_token(TokenType::Comma),
-            "." => self.add_token(TokenType::Dot),
-            "-" => self.add_token(TokenType::Minus),
-            "+" => self.add_token(TokenType::Plus),
-            ";" => self.add_token(TokenType::Semicolon),
-            "*" => self.add_token(TokenType::Star),
-            "!" => {
-                if self.peekIs('=') {
-                    self.add_token(TokenType::BangEquals);
-                    self.current = self.current + 1;
-                } else {
-                    self.add_token(TokenType::Bang);
-                }
-            },
-            "!" => {
-                if self.peekIs('=') {
-                    self.add_token(TokenType::BangEquals);
-                    self.current = self.current + 1;
-                } else {
-                    self.add_token(TokenType::Bang);
-                }
-            },
-            "<" => {
-                if self.peekIs('=') {
-                    self.add_token(TokenType::LessEqual);
-                    self.current = self.current + 1;
-                } else {
-                    self.add_token(TokenType::Less);
-                }
-            },
-            ">" => {
-                if self.peekIs('=') {
-                    self.add_token(TokenType::GreaterEqual);
-                    self.current = self.current + 1;
-                } else {
-                    self.add_token(TokenType::Greater);
-                }
-            },
-            "/" => {
-                if self.peekIs('/') { // Comment until the end of the line
-                    while self.peek() != '\n' && !self.is_at_end() {
-                        self.advance();
-                    }
-                } else {
-                    self.add_token(TokenType::Slash);
-                }
-            },
-            "\"" => self.add_token_string(self.scan_string()),
-            c if c.chars().nth(0).unwrap().is_ascii_digit() => self.add_token_number(self.scan_number()),
-            _ => panic!("Unexpected character {} at line {}", c.as_str(), self.line),
-        }
-    }
+fn is_alphabetic(c: &str) -> bool {
+    c.chars().nth(0).unwrap().is_ascii_alphabetic()
+}
 
-    fn scan(&mut self, program: &str) {
-        self.source = program.chars().collect::<Vec<char>>();
-    }
+fn is_numeric(c: &str) -> bool {
+    c.chars().nth(0).unwrap().is_ascii_digit()
+}
+
+pub fn scan_program(program: &str) -> Vec<Token> {
+    let mut scanner = Scanner::new(program);
+    scanner.scan()
 }
