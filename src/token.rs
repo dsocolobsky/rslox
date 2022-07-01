@@ -6,7 +6,7 @@ pub enum Value {
     Number(f64),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     // Single character tokens
     LeftParen,
